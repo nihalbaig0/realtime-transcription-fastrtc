@@ -1,0 +1,7 @@
+.venv/
+.env
+
+logs/
+docs/
+
+.DS_Store

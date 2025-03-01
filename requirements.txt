@@ -1,0 +1,12 @@
+fastrtc
+fastrtc[vad]
+gradio
+speechrecognition
+torch
+numpy
+fastapi
+uvicorn
+transformers
+httpx
+accelerate
+sounddevice
