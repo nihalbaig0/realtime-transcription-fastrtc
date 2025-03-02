@@ -17,7 +17,6 @@ from fastrtc import (
 from transformers import (
     AutoModelForSpeechSeq2Seq,
     AutoProcessor,
-    WhisperTokenizer,
     pipeline,
 )
 from transformers.utils import is_flash_attn_2_available
@@ -76,12 +75,11 @@ model = AutoModelForSpeechSeq2Seq.from_pretrained(
 model.to(device)
 
 processor = AutoProcessor.from_pretrained(model_id)
-tokenizer = WhisperTokenizer.from_pretrained(model_id)
 
 transcribe_pipeline = pipeline(
     task="automatic-speech-recognition",
     model=model,
-    tokenizer=tokenizer,
+    tokenizer=processor.tokenizer,
     feature_extractor=processor.feature_extractor,
     torch_dtype=torch_dtype,
     device=device,
@@ -106,13 +104,13 @@ async def transcribe(audio: tuple[int, np.ndarray]):
     
     outputs = transcribe_pipeline(
         {"sampling_rate": sample_rate, "raw": audio_array},
-        chunk_length_s=5,
+        chunk_length_s=3,
         batch_size=1,
         generate_kwargs={
             'task': 'transcribe',
             'language': 'english',
         },
-        return_timestamps=True
+        #return_timestamps="word"
     )
     yield AdditionalOutputs(outputs["text"].strip())
 
@@ -127,28 +125,28 @@ logger.info("Initializing FastRTC stream")
 stream = Stream(
     handler=ReplyOnPause(
         transcribe,
-        algo_options=AlgoOptions(
+        #algo_options=AlgoOptions(
             # Duration in seconds of audio chunks (default 0.6)
-            audio_chunk_duration=5,
+            #audio_chunk_duration=3,
             # If the chunk has more than started_talking_threshold seconds of speech, the user started talking (default 0.2)
-            started_talking_threshold=0.2,
+            #started_talking_threshold=0.2,
             # If, after the user started speaking, there is a chunk with less than speech_threshold seconds of speech, the user stopped speaking. (default 0.1)
-            speech_threshold=0.1,
-        ),
-        model_options=SileroVadOptions(
+            #speech_threshold=0.1,
+        #),
+        #model_options=SileroVadOptions(
             # Threshold for what is considered speech (default 0.5)
-            threshold=0.3,
+            #threshold=0.3,
             # Final speech chunks shorter min_speech_duration_ms are thrown out (default 250)
-            min_speech_duration_ms=200,
+            #min_speech_duration_ms=200,
             # Max duration of speech chunks, longer will be split (default float('inf'))
-            max_speech_duration_s=30,
+            #max_speech_duration_s=30,
             # Wait for ms at the end of each speech chunk before separating it (default 2000)
-            min_silence_duration_ms=2000,
+            #min_silence_duration_ms=2000,
             # Chunk size for VAD model. Can be 512, 1024, 1536 for 16k s.r. (default 1024)
-            window_size_samples=1024,
+            #window_size_samples=1024,
             # Final speech chunks are padded by speech_pad_ms each side
-            speech_pad_ms=400,
-        )
+            #speech_pad_ms=400,
+        #),
     ),
     # send-receive: bidirectional streaming (default)
     # send: client to server only
@@ -158,7 +156,7 @@ stream = Stream(
     additional_outputs=[
         gr.Textbox(label="Transcript"),
     ],
-    additional_outputs_handler=lambda current, new: current + " " + new if current else new,
+    additional_outputs_handler=lambda current, new: current + " " + new,
     rtc_configuration=credentials
 )
 
