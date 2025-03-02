@@ -17,6 +17,7 @@ from fastrtc import (
 from transformers import (
     AutoModelForSpeechSeq2Seq,
     AutoProcessor,
+    WhisperTokenizer,
     pipeline,
 )
 from transformers.utils import is_flash_attn_2_available
@@ -75,11 +76,12 @@ model = AutoModelForSpeechSeq2Seq.from_pretrained(
 model.to(device)
 
 processor = AutoProcessor.from_pretrained(model_id)
+tokenizer = WhisperTokenizer.from_pretrained(model_id)
 
 transcribe_pipeline = pipeline(
-    "automatic-speech-recognition",
+    task="automatic-speech-recognition",
     model=model,
-    tokenizer=processor.tokenizer,
+    tokenizer=tokenizer,
     feature_extractor=processor.feature_extractor,
     torch_dtype=torch_dtype,
     device=device,
@@ -93,17 +95,19 @@ logger.info("Model warmup complete")
 
 async def transcribe(audio: tuple[int, np.ndarray]):
     sample_rate, audio_array = audio
-    logger.debug(f"Sample rate: {sample_rate}Hz, Shape: {audio_array.shape}")
+    logger.info(f"Sample rate: {sample_rate}Hz, Shape: {audio_array.shape}")
     
-    # Convert to mono if needed
+    # Convert to mono if stereo
     if audio_array.ndim > 1:
-        audio_array = np.mean(audio_array, axis=1)
+        audio_array = audio_array.mean(axis=1)
+    
     audio_array = audio_array.astype(np_dtype)
+    audio_array /= np.max(np.abs(audio_array))
     
     outputs = transcribe_pipeline(
-        audio_array,
-        chunk_length_s=1,
-        batch_size=8,
+        {"sampling_rate": sample_rate, "raw": audio_array},
+        chunk_length_s=5,
+        batch_size=1,
         generate_kwargs={
             'task': 'transcribe',
             'language': 'english',
@@ -125,7 +129,7 @@ stream = Stream(
         transcribe,
         algo_options=AlgoOptions(
             # Duration in seconds of audio chunks (default 0.6)
-            audio_chunk_duration=1,
+            audio_chunk_duration=5,
             # If the chunk has more than started_talking_threshold seconds of speech, the user started talking (default 0.2)
             started_talking_threshold=0.2,
             # If, after the user started speaking, there is a chunk with less than speech_threshold seconds of speech, the user stopped speaking. (default 0.1)
