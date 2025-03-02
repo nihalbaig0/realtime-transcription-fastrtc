@@ -10,6 +10,8 @@ from fastrtc import (
     AdditionalOutputs,
     ReplyOnPause,
     Stream,
+    AlgoOptions,
+    SileroVadOptions,
     get_hf_turn_credentials,
 )
 from transformers import (
@@ -20,23 +22,43 @@ from transformers import (
 from transformers.utils import is_flash_attn_2_available
 import sounddevice as sd
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from utils.logger_config import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
-def get_device():
+def get_device(force_cpu=False):
+    if force_cpu:
+        return "cpu"
     if torch.cuda.is_available():
-        return "cuda", torch.float16
+        return "cuda"
     elif torch.backends.mps.is_available():
         torch.mps.empty_cache()
-        return "mps", torch.float32
+        return "mps"
     else:
-        return "cpu", torch.float32
+        return "cpu"
+    
+def get_torch_and_np_dtypes(device, use_bfloat16=False):
+    if device == "cuda":
+        torch_dtype = torch.bfloat16 if use_bfloat16 else torch.float16
+        np_dtype = np.float16
+    elif device == "mps":
+        torch_dtype = torch.bfloat16 if use_bfloat16 else torch.float16
+        np_dtype = np.float16
+    else:
+        torch_dtype = torch.float32
+        np_dtype = np.float32
+    return torch_dtype, np_dtype
 
-device, torch_dtype = get_device()
-logger.info(f"Using device: {device}, torch_dtype: {torch_dtype}")
+device = get_device(force_cpu=False)
+torch_dtype, np_dtype = get_torch_and_np_dtypes(device, use_bfloat16=False)
+logger.info(
+    f"Using device: {device}, torch_dtype: {torch_dtype}, np_dtype: {np_dtype}"
+)
 
 attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
 logger.info(f"Using attention: {attention}")
@@ -64,10 +86,10 @@ transcribe_pipeline = pipeline(
 )
 
 # Warm up the model with empty audio
-#logger.info("Warming up Whisper model with dummy input")
-#warmup_audio = np.zeros((16000,), dtype=np.float32)  # 1s of silence
-#transcribe_pipeline(warmup_audio)
-#logger.info("Model warmup complete")
+logger.info("Warming up Whisper model with dummy input")
+warmup_audio = np.zeros((16000,), dtype=np_dtype)  # 1s of silence
+transcribe_pipeline(warmup_audio)
+logger.info("Model warmup complete")
 
 async def transcribe(audio: tuple[int, np.ndarray]):
     sample_rate, audio_array = audio
@@ -76,17 +98,17 @@ async def transcribe(audio: tuple[int, np.ndarray]):
     # Convert to mono if needed
     if audio_array.ndim > 1:
         audio_array = np.mean(audio_array, axis=1)
-    audio_array = audio_array.astype(np.float32)
+    audio_array = audio_array.astype(np_dtype)
     
     outputs = transcribe_pipeline(
         audio_array,
-        chunk_length_s=30,
-        batch_size=24,
+        chunk_length_s=1,
+        batch_size=8,
         generate_kwargs={
             'task': 'transcribe',
             'language': 'english',
-            'return_timestamps': True
         },
+        return_timestamps=True
     )
     yield AdditionalOutputs(outputs["text"].strip())
 
@@ -99,7 +121,34 @@ except Exception as e:
 
 logger.info("Initializing FastRTC stream")
 stream = Stream(
-    handler=ReplyOnPause(transcribe),
+    handler=ReplyOnPause(
+        transcribe,
+        algo_options=AlgoOptions(
+            # Duration in seconds of audio chunks (default 0.6)
+            audio_chunk_duration=1,
+            # If the chunk has more than started_talking_threshold seconds of speech, the user started talking (default 0.2)
+            started_talking_threshold=0.2,
+            # If, after the user started speaking, there is a chunk with less than speech_threshold seconds of speech, the user stopped speaking. (default 0.1)
+            speech_threshold=0.1,
+        ),
+        model_options=SileroVadOptions(
+            # Threshold for what is considered speech (default 0.5)
+            threshold=0.3,
+            # Final speech chunks shorter min_speech_duration_ms are thrown out (default 250)
+            min_speech_duration_ms=200,
+            # Max duration of speech chunks, longer will be split (default float('inf'))
+            max_speech_duration_s=30,
+            # Wait for ms at the end of each speech chunk before separating it (default 2000)
+            min_silence_duration_ms=2000,
+            # Chunk size for VAD model. Can be 512, 1024, 1536 for 16k s.r. (default 1024)
+            window_size_samples=1024,
+            # Final speech chunks are padded by speech_pad_ms each side
+            speech_pad_ms=400,
+        )
+    ),
+    # send-receive: bidirectional streaming (default)
+    # send: client to server only
+    # receive: server to client only
     modality="audio",
     mode="send",
     additional_outputs=[
@@ -132,7 +181,7 @@ def _(webrtc_id: str):
 
     return StreamingResponse(output_stream(), media_type="text/event-stream")
 
-# HTML for fastapi mode
+# HTML for uvicorn mode
 @app.get("/")
 def index():
     logger.debug("Serving index page")
@@ -146,11 +195,20 @@ def index():
 
 if __name__ == "__main__":
     mode = os.getenv("MODE", "gradio")
+    server_name = os.getenv("SERVER_NAME", "0.0.0.0")
+    port = os.getenv("PORT", 7860)
     logger.info(f"Starting application in {mode} mode")
     
     if mode == "gradio":
-        logger.info("Launching Gradio UI on port 7860")
-        stream.ui.launch(server_port=7860, server_name=os.getenv("SERVER_NAME", "0.0.0.0"))
-    elif mode == "fastapi":
-        logger.info("Launching FastAPI server on port 7860")
-        uvicorn.run(app, host=os.getenv("SERVER_NAME", "0.0.0.0"), port=7860)
+        logger.info(f"Launchng Gradio UI on port {port}")
+        logger.info(f"Available at http://{server_name}:{port}")
+        stream.ui.launch(
+            server_port=port, 
+            server_name=server_name,
+            ssl_verify=False,
+            debug=True
+        )
+    else:
+        logger.info(f"Launching FastAPI server on port {port}")
+        logger.info(f"Available at http://{server_name}:{port}")
+        uvicorn.run(app, host=server_name, port=port)
