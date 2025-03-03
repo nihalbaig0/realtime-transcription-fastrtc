@@ -12,7 +12,6 @@ from fastrtc import (
     Stream,
     AlgoOptions,
     SileroVadOptions,
-    get_hf_turn_credentials,
     audio_to_bytes,
 )
 from transformers import (
@@ -24,6 +23,7 @@ from transformers.utils import is_flash_attn_2_available
 
 from utils.logger_config import setup_logging
 from utils.device import get_device, get_torch_and_np_dtypes
+from utils.turn_server import get_rtc_credentials
 
 
 load_dotenv()
@@ -67,14 +67,6 @@ logger.info("Warming up Whisper model with dummy input")
 warmup_audio = np.zeros((16000,), dtype=np_dtype)  # 1s of silence
 transcribe_pipeline(warmup_audio)
 logger.info("Model warmup complete")
-
-
-# Get credentials for the community TURN server (for when deployed on Spaces)
-try:
-    credentials = get_hf_turn_credentials(token=os.getenv("HF_TOKEN"))
-except Exception as e:
-    logger.error(f"Error getting credentials: {e}")
-    credentials = None
 
 
 async def transcribe(audio: tuple[int, np.ndarray]):
@@ -130,7 +122,7 @@ stream = Stream(
         gr.Textbox(label="Transcript"),
     ],
     additional_outputs_handler=lambda current, new: current + " " + new,
-    rtc_configuration=credentials
+    rtc_configuration=get_rtc_credentials(provider="hf") if os.getenv("APP_MODE") == "deployed" else None
 )
 
 app = FastAPI()
