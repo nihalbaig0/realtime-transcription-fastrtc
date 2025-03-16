@@ -1,6 +1,6 @@
 accelerate==1.4.0
-fastrtc==0.0.10
-fastrtc[vad]
+fastrtc==0.0.15
+fastrtc[vad]==0.0.15
 python-dotenv==1.0.1
 transformers==4.49.0
 torch==2.6.0

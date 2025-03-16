@@ -117,3 +117,8 @@ def get_cloudflare_credentials(
         raise Exception(
             f"Failed to get Cloudflare TURN credentials: {response.status_code} {response.text}"
         )
+    
+
+if __name__ == "__main__":
+    # Test
+    print(get_rtc_credentials(provider="hf"))
