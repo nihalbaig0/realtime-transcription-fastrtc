@@ -1,11 +1,12 @@
 import os
 import logging
+import json
 
 import gradio as gr
 import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastrtc import (
     AdditionalOutputs,
     ReplyOnPause,
@@ -40,7 +41,9 @@ attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
 logger.info(f"Using attention: {attention}")
 
 
-model_id = "openai/whisper-large-v3-turbo"
+#model_id = "openai/whisper-large-v3-turbo"
+model_id = "openai/whisper-tiny"
+
 logger.info(f"Loading Whisper model: {model_id}")
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id, 
@@ -128,6 +131,12 @@ stream = Stream(
 app = FastAPI()
 stream.mount(app)
 
+@app.get("/")
+async def index():
+    html_content = open("index.html").read()
+    rtc_config = get_rtc_credentials(provider="hf") if os.getenv("APP_MODE") == "deployed" else None
+    return HTMLResponse(content=html_content.replace("__RTC_CONFIGURATION__", json.dumps(rtc_config)))
+
 @app.get("/transcript")
 def _(webrtc_id: str):
     logger.debug(f"New transcript stream request for webrtc_id: {webrtc_id}")
@@ -149,11 +158,15 @@ if __name__ == "__main__":
     server_name = os.getenv("SERVER_NAME", "0.0.0.0")
     port = os.getenv("PORT", 7860)
     
-    logger.info("Launching Gradio UI")
-    logger.info(f"Available at http://{server_name}:{port}")
-    stream.ui.launch(
-        server_port=port, 
-        server_name=server_name,
-        ssl_verify=False,
-        debug=True
-    )
+    if os.getenv("UI_MODE") == "GRADIO":
+        logger.info("Launching Gradio UI")
+        stream.ui.launch(
+            server_port=port, 
+            server_name=server_name,
+            ssl_verify=False,
+            debug=True
+        )
+    else:
+        import uvicorn
+        logger.info("Launching FastAPI server")
+        uvicorn.run(app, host=server_name, port=port)
