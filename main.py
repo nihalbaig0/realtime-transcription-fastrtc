@@ -32,6 +32,11 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+UI_MODE = os.getenv("UI_MODE", "fastapi")
+APP_MODE = os.getenv("APP_MODE", "local")
+MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
+
+
 device = get_device(force_cpu=False)
 torch_dtype, np_dtype = get_torch_and_np_dtypes(device, use_bfloat16=False)
 logger.info(f"Using device: {device}, torch_dtype: {torch_dtype}, np_dtype: {np_dtype}")
@@ -40,21 +45,23 @@ logger.info(f"Using device: {device}, torch_dtype: {torch_dtype}, np_dtype: {np_
 attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
 logger.info(f"Using attention: {attention}")
 
+logger.info(f"Loading Whisper model: {MODEL_ID}")
 
-#model_id = "openai/whisper-large-v3-turbo"
-model_id = "openai/whisper-tiny"
+try:
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        MODEL_ID, 
+        torch_dtype=torch_dtype, 
+        low_cpu_mem_usage=True, 
+        use_safetensors=True,
+        attn_implementation=attention
+    )
+    model.to(device)
+except Exception as e:
+    logger.error(f"Error loading ASR model: {e}")
+    logger.error(f"Are you providing a valid model ID? {MODEL_ID}")
+    raise
 
-logger.info(f"Loading Whisper model: {model_id}")
-model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, 
-    torch_dtype=torch_dtype, 
-    low_cpu_mem_usage=True, 
-    use_safetensors=True,
-    attn_implementation=attention
-)
-model.to(device)
-
-processor = AutoProcessor.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 transcribe_pipeline = pipeline(
     task="automatic-speech-recognition",
@@ -125,7 +132,7 @@ stream = Stream(
         gr.Textbox(label="Transcript"),
     ],
     additional_outputs_handler=lambda current, new: current + " " + new,
-    rtc_configuration=get_rtc_credentials(provider="hf") if os.getenv("APP_MODE") == "deployed" else None
+    rtc_configuration=get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
 )
 
 app = FastAPI()
@@ -134,7 +141,7 @@ stream.mount(app)
 @app.get("/")
 async def index():
     html_content = open("index.html").read()
-    rtc_config = get_rtc_credentials(provider="hf") if os.getenv("APP_MODE") == "deployed" else None
+    rtc_config = get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
     return HTMLResponse(content=html_content.replace("__RTC_CONFIGURATION__", json.dumps(rtc_config)))
 
 @app.get("/transcript")
@@ -155,10 +162,10 @@ def _(webrtc_id: str):
 
 if __name__ == "__main__":
 
-    server_name = os.getenv("SERVER_NAME", "0.0.0.0")
+    server_name = os.getenv("SERVER_NAME", "localhost")
     port = os.getenv("PORT", 7860)
     
-    if os.getenv("UI_MODE") == "GRADIO":
+    if UI_MODE == "gradio":
         logger.info("Launching Gradio UI")
         stream.ui.launch(
             server_port=port, 
