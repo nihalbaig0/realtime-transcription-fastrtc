@@ -8,7 +8,30 @@ I am going to improve it as soon as possible! Any contributions would be much ap
 
 --
 
-`main.py` : transcribe away!
+## Installation
+
+Step 1: `git clone https://github.com/sofi444/realtime-transcription-fastrtc`
+
+Step 2: `cd realtime-transcription-fastrtc`
+
+Step 3: `uv venv --python 3.11 && source .venv/bin/activate` (you might need to install uv)
+
+Step 4: `uv pip install -r requirements.txt`
+
+Step 5: `brew install ffmpeg` (or your system specific way of installing ffmpeg)
+
+Step 6: `python main.py` (follow along the fun at https://localhost:7860)
+
+Bonus: It's recommended to create a .env file and add the following variables:
+
+```
+UI_MODE=fastapi
+APP_MODE=x
+
+SERVER_NAME=localhost
+```
+
+Enjoy! :))
 
 FastRTC docs : https://fastrtc.org/ - check out what parameters you can tweak with respect to the Audio Stream, Voice Activity Detection, etc.
 
