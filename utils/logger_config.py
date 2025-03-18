@@ -30,21 +30,8 @@ class ColorFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
         return formatter.format(record)
 
-def configure_logfire():
-    import logfire
-    # First run `logfire auth`
-    # -> Your Logfire credentials are stored in <path>/.logfire/default.toml
-    
-    def scrubbing_callback(m: logfire.ScrubMatch):
-        if m.pattern_match.group(0) == 'Credit Card':
-            return m.value
-
-    logfire.configure(scrubbing=logfire.ScrubbingOptions(callback=scrubbing_callback))
-
-def setup_logging(level=None, with_logfire=False):
+def setup_logging(level=None):
     """Configure logging for the entire application"""
-    if with_logfire:
-        configure_logfire()
 
     # Get level from environment variable or use default
     if level is None:

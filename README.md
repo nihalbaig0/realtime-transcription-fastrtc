@@ -8,6 +8,11 @@ I am going to improve it as soon as possible! Any contributions would be much ap
 
 --
 
+**System Dependencies:** 
+- `ffmpeg`
+- python = ">=3.10"
+
+
 `main.py` : transcribe away!
 
 FastRTC docs : https://fastrtc.org/ - check out what parameters you can tweak with respect to the Audio Stream, Voice Activity Detection, etc.
