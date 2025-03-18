@@ -188,8 +188,8 @@
     <!-- Add toast element after body opening tag -->
     <div id="error-toast" class="toast"></div>
     <div class="hero">
-        <h1>Real-time Transcription</h1>
-        <p>Powered by FastRTC and Local Whisper 🤗</p>
+        <h1>PyCon Italia 2025 Real-time Transcription</h1>
+        <p>Powered by FastRTC and Local Whisper</p>
     </div>
 
     <div class="container">
@@ -205,6 +205,7 @@
         let audioContext, analyser, audioSource;
         let audioLevel = 0;
         let animationFrame;
+        let eventSource;
 
         const startButton = document.getElementById('start-button');
         const transcriptDiv = document.getElementById('transcript');
@@ -358,7 +359,7 @@
                 await peerConnection.setRemoteDescription(serverResponse);
 
                 // Create event stream to receive transcripts
-                const eventSource = new EventSource('/transcript?webrtc_id=' + webrtc_id);
+                eventSource = new EventSource('/transcript?webrtc_id=' + webrtc_id);
                 eventSource.addEventListener("output", (event) => {
                     appendTranscript(event.data);
                 });
@@ -403,9 +404,13 @@
                     });
                 }
 
-                setTimeout(() => {
-                    peerConnection.close();
-                }, 500);
+                peerConnection.close();
+                peerConnection = null;
+            }
+            // Close EventSource connection
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
             }
             audioLevel = 0;
             updateButtonState();

@@ -8,6 +8,7 @@ I am going to improve it as soon as possible! Any contributions would be much ap
 
 --
 
+
 ## Installation
 
 Step 1: `git clone https://github.com/sofi444/realtime-transcription-fastrtc`
@@ -32,6 +33,14 @@ SERVER_NAME=localhost
 ```
 
 Enjoy! :))
+
+
+=======
+
+**System Dependencies:** 
+- `ffmpeg`
+- python = ">=3.10"
+
 
 FastRTC docs : https://fastrtc.org/ - check out what parameters you can tweak with respect to the Audio Stream, Voice Activity Detection, etc.
 
