@@ -1,5 +1,13 @@
 # Real Time Speech Transcription with FastRTC ⚡️and Local Whisper 🤗 
 
+--
+
+NOTE! : This is just the PoC code / starting point for a volunteering project I am doing - I wasn't expecting it to get so much attention :O
+
+I am going to improve it as soon as possible! Any contributions would be much appreciated :))
+
+--
+
 `main.py` : transcribe away!
 
 FastRTC docs : https://fastrtc.org/ - check out what parameters you can tweak with respect to the Audio Stream, Voice Activity Detection, etc.
