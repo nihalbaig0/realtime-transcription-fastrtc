@@ -3,44 +3,25 @@ import logging
 
 import gradio as gr
 import numpy as np
-import torch
 from transformers import (
     AutoModelForSpeechSeq2Seq,
     AutoProcessor,
     pipeline,
 )
 from transformers.utils import is_flash_attn_2_available
-from dotenv import load_dotenv
-
-load_dotenv()
 
 from utils.logger_config import setup_logging
+from utils.device import get_device, get_torch_and_np_dtypes
+
+from dotenv import load_dotenv
+load_dotenv()
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
-def get_device(force_cpu=False):
-    if force_cpu:
-        return "cpu"
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-        return "mps"
-    else:
-        return "cpu"
-    
-def get_torch_and_np_dtypes(device, use_bfloat16=False):
-    if device == "cuda":
-        torch_dtype = torch.bfloat16 if use_bfloat16 else torch.float16
-        np_dtype = np.float16
-    elif device == "mps":
-        torch_dtype = torch.bfloat16 if use_bfloat16 else torch.float16
-        np_dtype = np.float16
-    else:
-        torch_dtype = torch.float32
-        np_dtype = np.float32
-    return torch_dtype, np_dtype
+
+MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
+
 
 device = get_device(force_cpu=False)
 torch_dtype, np_dtype = get_torch_and_np_dtypes(device, use_bfloat16=False)
@@ -51,18 +32,23 @@ logger.info(
 attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
 logger.info(f"Using attention: {attention}")
 
-model_id = "openai/whisper-large-v3-turbo"
-logger.info(f"Loading Whisper model: {model_id}")
-model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, 
-    torch_dtype=torch_dtype, 
-    low_cpu_mem_usage=True, 
-    use_safetensors=True,
-    attn_implementation=attention
-)
-model.to(device)
+logger.info(f"Loading Whisper model: {MODEL_ID}")
 
-processor = AutoProcessor.from_pretrained(model_id)
+try:
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        MODEL_ID, 
+        torch_dtype=torch_dtype, 
+        low_cpu_mem_usage=True, 
+        use_safetensors=True,
+        attn_implementation=attention
+    )
+    model.to(device)
+except Exception as e:
+    logger.error(f"Error loading ASR model: {e}")
+    logger.error(f"Are you providing a valid model ID? {MODEL_ID}")
+    raise
+
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 transcribe_pipeline = pipeline(
     task="automatic-speech-recognition",
@@ -132,8 +118,10 @@ with gr.Blocks() as demo:
         )
 
 if __name__ == "__main__":
-    server_name = os.getenv("SERVER_NAME", "0.0.0.0")
+    
+    server_name = os.getenv("SERVER_NAME", "localhost")
     port = os.getenv("PORT", 7860)
+    
     demo.launch(
         server_name=server_name,
         server_port=port,
