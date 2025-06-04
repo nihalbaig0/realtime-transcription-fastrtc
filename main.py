@@ -6,6 +6,7 @@ import gradio as gr
 import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastrtc import (
     AdditionalOutputs,
@@ -32,8 +33,9 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-UI_MODE = os.getenv("UI_MODE", "fastapi")
-APP_MODE = os.getenv("APP_MODE", "local")
+UI_MODE = os.getenv("UI_MODE", "fastapi").lower() # gradio | fastapi
+UI_TYPE = os.getenv("UI_TYPE", "base").lower() # base | screen
+APP_MODE = os.getenv("APP_MODE", "local").lower() # local | deployed
 MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
 
 
@@ -136,11 +138,15 @@ stream = Stream(
 )
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 stream.mount(app)
 
 @app.get("/")
 async def index():
-    html_content = open("index.html").read()
+    if UI_TYPE == "base":
+        html_content = open("static/index.html").read()
+    elif UI_TYPE == "screen":
+        html_content = open("static/index-screen.html").read()
     rtc_config = get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
     return HTMLResponse(content=html_content.replace("__RTC_CONFIGURATION__", json.dumps(rtc_config)))
 

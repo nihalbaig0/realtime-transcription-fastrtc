@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Whisper Transcription</title>
+    <script>
+        window.__RTC_CONFIGURATION__ = __INJECTED_RTC_CONFIG__;
+    </script>
+    <style>
+        :root {
+            --background-dark: #000000;
+            --text-light: #ffffff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0; /* Removes default margin */
+            padding: 0; /* Removes default padding */
+            background-color: var(--background-dark); /* Sets background to black */
+            color: var(--text-light); /* Sets text to white */
+            min-height: 100vh; /* Ensures page fills entire viewport height */
+        }
+
+        /* Hide the header in presentation mode */
+        .hero {
+            display: none; /* Hides the hero section completely */
+        }
+
+        .container {
+            max-width: 100%;  /* Makes container full width */
+            margin: 0; /* Removes margin */
+            padding: 1rem; /* Adds small padding all around */
+        }
+
+        /* Base styling for transcript container */
+        .transcript-container {
+            height: 90vh;  /* Sets height to 90% of viewport height */
+            border: none; /* Removes border */
+            padding: 2rem; /* Adds generous padding inside */
+            background: var(--background-dark); /* Ensures background is black */
+            color: var(--text-light); /* Ensures text is white */
+            overflow-y: auto; /* Enables vertical scrolling when content overflows */
+            margin-bottom: 0; /* Removes bottom margin */
+            display: block; /* Makes element a block to take full width */
+            width: 100%; /* Sets width to 100% */
+        }
+
+        /* Styling for transcript paragraphs */
+        .transcript-container p {
+            margin: 0.5rem 0; /* Small vertical margin between paragraphs */
+            padding: 0.5rem 0; /* Small vertical padding within paragraphs */
+            background: transparent; /* Transparent background (no highlighting) */
+            border-radius: 0; /* No rounded corners */
+            line-height: 1.6; /* Increases line spacing for readability */
+            font-size: 10rem;  /* rem means relative to the root font size */
+            font-weight: 500; /* 500 = medium weight, 700 = bold */
+            max-width: 98%; /* Full width within container */
+            white-space: normal;  /* Allows text to wrap normally */
+            word-wrap: break-word; /* Prevents overflow of long words */
+            color: white; /* Explicitly sets text color to white */
+            display: block; /* Each paragraph takes full width */
+        }
+
+        /* Current paragraph styling - slightly brighter for emphasis */
+        .transcript-container p.current {
+            background: transparent;  /* No background color */
+            color: rgba(255, 255, 255, 1.0); /* Full brightness white for current text */
+        }
+
+        /* Ensure all paragraphs have full opacity (keeps history visible) */
+        .transcript-container p:nth-last-child(n+4) {
+            opacity: 1.0; /* Shows all paragraphs at full opacity */
+        }
+
+        /* Controls for starting/stopping transcription */
+        .controls {
+            position: fixed; /* Fixes controls to viewport */
+            bottom: 2rem; /* Positions 2rem from bottom */
+            right: 2rem; /* Positions 2rem from right */
+            margin: 0; /* No margin */
+            opacity: 0.8;  /* Slightly transparent when not hovered */
+            transition: opacity 0.3s ease; /* Smooth transition for opacity changes */
+            z-index: 1000; /* Ensures controls appear above other elements */
+        }
+
+        .controls:hover {
+            opacity: 1; /* Full opacity on hover */
+        }
+
+        /* Button styling - orange with black text for good contrast */
+        button {
+            background: rgba(249, 164, 92, 1.0);  /* Solid orange background */
+            backdrop-filter: blur(5px); /* Blur effect for elements behind */
+            font-size: 1.2rem; /* Large text */
+            min-width: 160px; /* Minimum width for button */
+            padding: 15px 30px; /* Generous padding inside button */
+            color: black !important;  /* Forces black text color */
+            font-weight: bold; /* Bold text for better visibility */
+            border: 2px solid rgba(255, 255, 255, 0.2); /* Subtle border */
+            border-radius: 8px; /* Rounded corners */
+            cursor: pointer; /* Shows pointer cursor on hover */
+            transition: all 0.2s ease; /* Smooth transition for hover effects */
+            display: block; /* Makes button take up full width */
+        }
+
+        button:hover {
+            background: rgba(249, 164, 92, 0.9); /* Slightly more transparent on hover */
+            transform: translateY(-2px); /* Slight upward movement on hover */
+        }
+
+        /* Spinner animation for loading state */
+        .icon-with-spinner .spinner {
+            border: 3px solid black; /* Spinner border */
+            border-top: 3px solid transparent; /* Transparent top creates spinning effect */
+            border-radius: 50%; /* Makes it circular */
+            width: 24px; /* Width of spinner */
+            height: 24px; /* Height of spinner */
+            animation: spin 1s linear infinite; /* Animation for spinning effect */
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); } /* Starting rotation */
+            100% { transform: rotate(360deg); } /* Full 360° rotation */
+        }
+
+        /* Recording indicator pulse animation */
+        .pulse-circle {
+            display: inline-block; /* Allows other elements inline */
+            width: 12px; /* Width of pulse circle */
+            height: 12px; /* Height of pulse circle */
+            border-radius: 50%; /* Makes it circular */
+            background-color: red; /* Red color for recording indicator */
+            margin-right: 8px; /* Space to right of circle */
+            animation: pulse 1.5s ease infinite; /* Continuous pulsing animation */
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.7; } /* Slightly smaller and transparent */
+            50% { transform: scale(1.1); opacity: 1; } /* Larger and fully opaque */
+            100% { transform: scale(0.95); opacity: 0.7; } /* Back to starting state */
+        }
+
+        /* Custom scrollbar styling */
+        .transcript-container::-webkit-scrollbar {
+            width: 8px; /* Width of scrollbar */
+        }
+
+        .transcript-container::-webkit-scrollbar-track {
+            background: var(--background-dark); /* Black scrollbar track */
+        }
+
+        .transcript-container::-webkit-scrollbar-thumb {
+            background: rgba(249, 164, 92, 0.3); /* Semi-transparent orange scrollbar thumb */
+            border-radius: 4px; /* Rounded corners on scrollbar thumb */
+        }
+
+        /* Error toast styling */
+        .toast {
+            background: rgba(0, 0, 0, 0.8); /* Semi-transparent black background */
+            backdrop-filter: blur(5px); /* Blur effect behind toast */
+            color: var(--text-light); /* White text */
+            font-size: 1.2rem; /* Large text size */
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Error message container that slides in when needed -->
+    <div id="error-toast" class="toast"></div>
+    <!-- Header section (hidden in presentation mode) -->
+    <div class="hero">
+        <h1>Real-time Transcription</h1>
+        <p>Powered by FastRTC and Local Whisper 🤗</p>
+    </div>
+
+    <!-- Main content container -->
+    <div class="container">
+        <!-- Container for transcript text -->
+        <div class="transcript-container" id="transcript"></div>
+        <!-- Controls for starting/stopping recording -->
+        <div class="controls">
+            <button id="start-button">Start Recording</button>
+        </div>
+    </div>
+
+    <script src="/static/client.js"></script>
+</body>
+
+</html>
