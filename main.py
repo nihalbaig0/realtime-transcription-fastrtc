@@ -147,8 +147,11 @@ async def index():
         html_content = open("static/index.html").read()
     elif UI_TYPE == "screen":
         html_content = open("static/index-screen.html").read()
-    rtc_config = get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
-    return HTMLResponse(content=html_content.replace("__RTC_CONFIGURATION__", json.dumps(rtc_config)))
+
+    rtc_configuration = get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
+    logger.info(f"RTC configuration: {rtc_configuration}")
+    html_content = html_content.replace("__INJECTED_RTC_CONFIG__", json.dumps(rtc_configuration))
+    return HTMLResponse(content=html_content)
 
 @app.get("/transcript")
 def _(webrtc_id: str):
