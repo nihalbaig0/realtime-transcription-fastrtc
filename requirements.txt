@@ -1,8 +1,8 @@
 accelerate
-git+https://github.com/sofi444/fastrtc@break-cont-speech#egg=fastrtc[vad]
+fastrtc[vad]==0.0.26
 python-dotenv
 transformers
-torch==2.6.0
-torchaudio==2.6.0
+torch>=2.6.0
+torchaudio>=2.6.0
 gradio
 uvicorn[standard]
