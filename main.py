@@ -39,17 +39,29 @@ APP_MODE = os.getenv("APP_MODE", "local").lower() # local | deployed
 TURN_PROVIDER = os.getenv("TURN_PROVIDER", "hf-cloudflare") # hf-cloudflare | cloudflare | twilio
 
 MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
-
+LANGUAGE = os.getenv("LANGUAGE", "english")
 
 device = get_device(force_cpu=False)
 torch_dtype, np_dtype = get_torch_and_np_dtypes(device, use_bfloat16=False)
-logger.info(f"Using device: {device}, torch_dtype: {torch_dtype}, np_dtype: {np_dtype}")
-
 
 attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
-logger.info(f"Using attention: {attention}")
 
-logger.info(f"Loading Whisper model: {MODEL_ID}")
+logger.info(f"""
+    --------------------------------
+    Settings:
+    - UI_MODE: {UI_MODE}
+    - UI_TYPE: {UI_TYPE}
+    - APP_MODE: {APP_MODE}
+    - TURN_PROVIDER: {TURN_PROVIDER}
+    - MODEL_ID: {MODEL_ID}
+    - LANGUAGE: {LANGUAGE}
+
+    - Device: {device}
+    - Torch dtype: {torch_dtype}
+    - Numpy dtype: {np_dtype}
+    - Attention: {attention}
+    --------------------------------
+""")
 
 try:
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -93,7 +105,7 @@ async def transcribe(audio: tuple[int, np.ndarray]):
         batch_size=1,
         generate_kwargs={
             'task': 'transcribe',
-            'language': 'english',
+            'language': LANGUAGE,
         },
         #return_timestamps="word"
     )
