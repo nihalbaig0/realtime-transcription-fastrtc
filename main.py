@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 UI_MODE = os.getenv("UI_MODE", "fastapi").lower() # gradio | fastapi
 UI_TYPE = os.getenv("UI_TYPE", "base").lower() # base | screen
 APP_MODE = os.getenv("APP_MODE", "local").lower() # local | deployed
+TURN_PROVIDER = os.getenv("TURN_PROVIDER", "hf-cloudflare") # hf-cloudflare | cloudflare | twilio
+
 MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
 
 
@@ -134,7 +136,7 @@ stream = Stream(
         gr.Textbox(label="Transcript"),
     ],
     additional_outputs_handler=lambda current, new: current + " " + new,
-    rtc_configuration=get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
+    rtc_configuration=get_rtc_credentials(provider=TURN_PROVIDER) if APP_MODE == "deployed" else None,
 )
 
 app = FastAPI()
@@ -148,7 +150,7 @@ async def index():
     elif UI_TYPE == "screen":
         html_content = open("static/index-screen.html").read()
 
-    rtc_configuration = get_rtc_credentials(provider="hf") if APP_MODE == "deployed" else None
+    rtc_configuration = await get_rtc_credentials(provider=TURN_PROVIDER) if APP_MODE == "deployed" else None
     logger.info(f"RTC configuration: {rtc_configuration}")
     html_content = html_content.replace("__INJECTED_RTC_CONFIG__", json.dumps(rtc_configuration))
     return HTMLResponse(content=html_content)
