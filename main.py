@@ -16,17 +16,11 @@ from fastrtc import (
     SileroVadOptions,
     audio_to_bytes,
 )
-from transformers import (
-    AutoModelForSpeechSeq2Seq,
-    AutoProcessor,
-    pipeline,
-)
-from transformers.utils import is_flash_attn_2_available
 
 from utils.logger_config import setup_logging
-from utils.device import get_device, get_torch_and_np_dtypes
+from utils.device import get_device
 from utils.turn_server import get_rtc_credentials
-
+from utils.model import initialize_whisper_model
 
 load_dotenv()
 setup_logging()
@@ -41,59 +35,24 @@ TURN_PROVIDER = os.getenv("TURN_PROVIDER", "hf-cloudflare") # hf-cloudflare | cl
 MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
 LANGUAGE = os.getenv("LANGUAGE", "english")
 
-device = get_device(force_cpu=False)
-torch_dtype, np_dtype = get_torch_and_np_dtypes(device, use_bfloat16=False)
-
-attention = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
-
 logger.info(f"""
-    --------------------------------
-    Settings:
+    --------------------------------------
+    Configuration (environment variables):
     - UI_MODE: {UI_MODE}
     - UI_TYPE: {UI_TYPE}
     - APP_MODE: {APP_MODE}
     - TURN_PROVIDER: {TURN_PROVIDER}
     - MODEL_ID: {MODEL_ID}
     - LANGUAGE: {LANGUAGE}
-
-    - Device: {device}
-    - Torch dtype: {torch_dtype}
-    - Numpy dtype: {np_dtype}
-    - Attention: {attention}
-    --------------------------------
+    --------------------------------------
 """)
 
-try:
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        MODEL_ID, 
-        torch_dtype=torch_dtype, 
-        low_cpu_mem_usage=True, 
-        use_safetensors=True,
-        attn_implementation=attention
-    )
-    model.to(device)
-except Exception as e:
-    logger.error(f"Error loading ASR model: {e}")
-    logger.error(f"Are you providing a valid model ID? {MODEL_ID}")
-    raise
-
-processor = AutoProcessor.from_pretrained(MODEL_ID)
-
-transcribe_pipeline = pipeline(
-    task="automatic-speech-recognition",
-    model=model,
-    tokenizer=processor.tokenizer,
-    feature_extractor=processor.feature_extractor,
-    torch_dtype=torch_dtype,
-    device=device,
+transcribe_pipeline = initialize_whisper_model(
+    model_id=MODEL_ID,
+    try_compile=True, # Set to False to disable trying to compile the model
+    try_use_flash_attention=True, # Set to False to disable trying to use flash attention
+    device=get_device(force_cpu=False) # Set to False to use GPU if available
 )
-
-# Warm up the model with empty audio
-logger.info("Warming up Whisper model with dummy input")
-warmup_audio = np.zeros((16000,), dtype=np_dtype)  # 1s of silence
-transcribe_pipeline(warmup_audio)
-logger.info("Model warmup complete")
-
 
 async def transcribe(audio: tuple[int, np.ndarray]):
     sample_rate, audio_array = audio
