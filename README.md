@@ -90,3 +90,48 @@ On MPS, I can run `whisper-large-v3-turbo` without problems. This is my current 
 Adjust the parameters as you like, but remember that for real-time, we want the batch size to be 1 (i.e. start transcribing as soon as a chunk is available).
 
 If you want to transcribe different languages, set the language parameter to the target language, otherwise Whisper defaults to translating to English (even if you set `transcribe` as the task).
+
+## Docker 🐳 (optional)
+
+I provide a Docker setup for both CPU and GPU: `Dockerfile.cpu` and `Dockerfile.cuda`, helpful if you want to deploy the app in a container.
+
+The Dockerfiles use `uv` as environment and package manager.
+
+`Dockerfile.cuda` includes Flash Attention installation for faster inference (https://github.com/Dao-AILab/flash-attention).
+
+
+<details>
+<summary>🖥️ CPU-Only</summary>
+For CPU-only inference (works on any system).
+
+Using the `docker-compose.yml` file provided, run:
+
+```bash
+docker-compose --profile cpu up --build
+```
+
+Otherwise, you can build the image manually:
+```bash
+docker build -f Dockerfile.cpu -t realtime-transcription-fastrtc-cpu .
+```
+
+</details>
+
+<details>
+<summary>🚀 GPU Deployment (NVIDIA)</summary>
+For GPU-accelerated inference.
+
+Using the `docker-compose.yml` file provided, run:
+
+```bash
+docker-compose --profile cuda up --build
+```
+
+Otherwise, you can build the image manually:
+
+```bash
+docker build -f Dockerfile.cuda -t realtime-transcription-fastrtc-cuda .
+```
+
+**NOTE**: Requires NVIDIA GPU with CUDA 12.1. Change base image in `Dockerfile.cuda` to match your CUDA version.
+</details>
