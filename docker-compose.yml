@@ -1,0 +1,35 @@
+services:
+  # CPU
+  app-cpu:
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    ports:
+      - "${PORT:-7860}:${PORT:-7860}"
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+    env_file: .env
+    command: sh -c "uvicorn main:app --host ${SERVER_NAME:-0.0.0.0} --port ${PORT:-7860}"
+
+  # CUDA  
+  app-cuda:
+    profiles: ["cuda"]
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    ports:
+      - "${PORT:-7860}:${PORT:-7860}"
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+    env_file: .env
+    command: sh -c "uvicorn main:app --host ${SERVER_NAME:-0.0.0.0} --port ${PORT:-7860}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu] 

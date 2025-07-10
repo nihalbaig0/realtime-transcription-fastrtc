@@ -1,29 +1,39 @@
-# Real Time Speech Transcription with FastRTC ⚡️and Local Whisper 🤗 
+# Live Speech Transcription powered by FastRTC ⚡️ and Local Whisper 🤗 
 
-This project uses FastRTC to handle the live audio streaming and open-source Automatic Speech Recognition models via Transformers.
+This project uses [FastRTC](https://fastrtc.org/) to handle live interaction between audio input and text output, and open-source Automatic Speech Recognition (ASR) models via [Transformers](https://huggingface.co/docs/transformers).
 
-Check the [FastRTC documentation](https://fastrtc.org/) to see what parameters you can tweak with respect to the audio stream, Voice Activity Detection (VAD), etc.
+## Quick Start 🚀
 
 **System Requirements**
-- python >= 3.10
+- Python ≥3.10
 - ffmpeg
+- CUDA-compatible GPU (optional, for faster inference)
 
-## Installation
-
-### Step 1: Clone the repository
 ```bash
+# Clone and enter directory
 git clone https://github.com/sofi444/realtime-transcription-fastrtc
 cd realtime-transcription-fastrtc
+
+# Set up environment
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Run with default settings
+python main.py
 ```
 
-### Step 2: Set up environment
+Visit the URL shown in the terminal (default: https://localhost:7860) to start transcribing!
+
+## Detailed Installation
+
+### 1. Environment Setup
+
 Choose your preferred package manager:
 
 <details>
-<summary>📦 Using UV (recommended)</summary>
+<summary>📦 UV (recommended)</summary>
 
 [Install `uv`](https://docs.astral.sh/uv/getting-started/installation/)
-
 
 ```bash
 uv venv --python 3.11 && source .venv/bin/activate
@@ -32,7 +42,7 @@ uv pip install -r requirements.txt
 </details>
 
 <details>
-<summary>🐍 Using pip</summary>
+<summary>🐍 pip</summary>
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -41,7 +51,8 @@ pip install -r requirements.txt
 ```
 </details>
 
-### Step 3: Install ffmpeg
+### 2. Install ffmpeg
+
 <details>
 <summary>🍎 macOS</summary>
 
@@ -59,34 +70,81 @@ sudo apt install ffmpeg
 ```
 </details>
 
-### Step 4: Configure environment
-Create a `.env` file in the project root:
+## Configuration
 
-```env
-UI_MODE=fastapi
-APP_MODE=local
-SERVER_NAME=localhost
-```
+The application can be configured using environment variables. Create a `.env` file in the project root with the following variables:
 
-- **UI_MODE**: controls the interface to use. If set to `gradio`, you will launch the app via Gradio and use their default UI. If set to anything else (eg. `fastapi`) it will use the `index.html` file in the root directory to create the UI (you can customise it as you want) (default `fastapi`).
-- **APP_MODE**: ignore this if running only locally. If you're deploying eg. in Spaces, you need to configure a Turn Server. In that case, set it to `deployed`, follow the instructions [here](https://fastrtc.org/deployment/) (default `local`).
-- **MODEL_ID**: HF model identifier for the ASR model you want to use (see [here](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition&sort=trending)) (default `openai/whisper-large-v3-turbo`)
-- **SERVER_NAME**: Host to bind to (default `localhost`)
-- **PORT**: Port number (default `7860`) 
+| Variable | Description | Possible Values | Default |
+|----------|-------------|-----------------|---------|
+| `UI_MODE` | Interface type to use | `fastapi` (custom UI), `gradio` (default Gradio UI) | `fastapi` |
+| `UI_TYPE` | UI template to use when `UI_MODE=fastapi` | `base`, `screen` | `base` |
+| `APP_MODE` | Deployment mode | `local`, `deployed` | `local` |
+| `TURN_PROVIDER` | TURN server provider when `APP_MODE=deployed` | `hf-cloudflare`, `cloudflare`, `twilio` | `hf-cloudflare` |
+| `MODEL_ID` | HuggingFace model identifier | Any | `openai/whisper-large-v3-turbo` |
+| `LANGUAGE` | Target language for transcription | Any valid or None | `english` |
+| `SERVER_NAME` | Host to bind to | Any valid hostname | `localhost` |
+| `PORT` | Port number | Any valid port | `7860` |
 
-### Step 5: Launch the application
+## Model Selection
+
+You can use any Whisper model version or other ASR model from [Hugging Face](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition&sort=trending). The default `whisper-large-v3-turbo` is recommended as it's lightweight, performant and multi-lingual.
+
+We use batch size 1 to start transcribing as soon as a chunk is available.
+
+## Docker 🐳
+
+I provide a Docker setup for both CPU and GPU: `Dockerfile.cpu` and `Dockerfile.cuda`, helpful if you want to deploy the app in a container.
+
+The Dockerfiles use `uv` as environment and package manager.
+
+`Dockerfile.cuda` includes Flash Attention installation for faster inference (https://github.com/Dao-AILab/flash-attention).
+
+
+<details>
+<summary>🖥️ CPU-Only</summary>
+
 ```bash
-python main.py
+# Using docker-compose
+docker-compose --profile cpu up --build
+
+# Or build manually
+docker build -f Dockerfile.cpu -t realtime-transcription-fastrtc-cpu .
 ```
-click on the url that pops up (eg. https://localhost:7860) to start using the app!
+</details>
+
+<details>
+<summary>🚀 GPU Deployment (NVIDIA)</summary>
+
+```bash
+# Using docker-compose
+docker-compose --profile cuda up --build
+
+# Or build manually
+docker build -f Dockerfile.cuda -t realtime-transcription-fastrtc-cuda .
+```
+
+**Note**: Requires NVIDIA GPU with CUDA 12.1. Change base image in `Dockerfile.cuda` to match your CUDA version.
+</details>
 
 
-### Whisper
+## Deploying on HF Spaces 🤗
 
-Choose the Whisper model version you want to use. See all [here](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition&sort=trending&search=whisper) - you can of course also use a non-Whisper ASR model.
+1. Create a new Space on HuggingFace
+2. Select Docker SDK
+3. Choose your hardware (CPU/GPU)
+4. Set variables and secrets in the Space's settings (see [here](https://huggingface.co/docs/hub/en/spaces-overview#managing-secrets))
+5. Clone your Space's repository
+6. Copy the app contents to the new repository
+7. Rename either `Dockerfile.cpu` or `Dockerfile.cuda` to `Dockerfile` based on your hardware choice (see previous section about Docker 🐳)
+8. Push to your Space!
 
-On MPS, I can run `whisper-large-v3-turbo` without problems. This is my current favourite as it’s lightweight, performant and multi-lingual!
+For deployed environments:
+- Set `APP_MODE=deployed`
+- Set `TURN_PROVIDER` to your chosen provider (`cloudflare`, `hf-cloudflare`, or `twilio`)
+- Configure the corresponding TURN server credentials in your Space's secrets
 
-Adjust the parameters as you like, but remember that for real-time, we want the batch size to be 1 (i.e. start transcribing as soon as a chunk is available).
+## Additional Resources
 
-If you want to transcribe different languages, set the language parameter to the target language, otherwise Whisper defaults to translating to English (even if you set `transcribe` as the task).
+- [FastRTC documentation](https://fastrtc.org/) - Learn about audio stream and Voice Activity Detection (VAD) parameters
+- [Whisper configuration options](https://huggingface.co/docs/transformers/en/model_doc/whisper#transformers.WhisperForConditionalGeneration.generate)
+- [Available ASR models](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition&sort=trending) on Hugging Face

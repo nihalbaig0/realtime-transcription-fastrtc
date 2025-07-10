@@ -1,7 +1,8 @@
-accelerate==1.4.0
-fastrtc==0.0.15
-fastrtc[vad]==0.0.15
-python-dotenv==1.0.1
-transformers==4.49.0
-torch==2.6.0
-torchaudio==2.6.0
+accelerate
+fastrtc[vad]==0.0.26
+python-dotenv
+transformers
+torch>=2.6.0
+torchaudio>=2.6.0
+gradio
+uvicorn[standard]
