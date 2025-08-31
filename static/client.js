@@ -302,16 +302,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 showError("Streaming connection lost. Please try again.");
             };
             
-            // Handle streaming events
-            eventSource.addEventListener("streaming", (event) => {
+            // Handle partial/streaming events
+            eventSource.addEventListener("partial", (event) => {
                 console.log("Received streaming chunk:", event.data);
                 appendStreamingTranscript(event.data, true);  // Mark as partial
             });
             
-            // Handle final/complete events if implemented
-            eventSource.addEventListener("complete", (event) => {
-                console.log("Received complete transcript:", event.data);
-                appendStreamingTranscript(event.data, false);  // Mark as complete
+            // Handle output events (for compatibility)
+            eventSource.addEventListener("output", (event) => {
+                console.log("Received output:", event.data);
+                appendStreamingTranscript(event.data, true);
             });
             
             console.log('Streaming WebRTC setup complete');
