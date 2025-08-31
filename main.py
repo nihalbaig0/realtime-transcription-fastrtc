@@ -1,7 +1,6 @@
 import os
 import logging
 import json
-import asyncio
 import time
 from collections import deque
 import threading
@@ -14,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastrtc import (
     AdditionalOutputs,
+    ReplyOnPause,
     Stream,
     AlgoOptions,
     SileroVadOptions,
@@ -37,22 +37,15 @@ TURN_PROVIDER = os.getenv("TURN_PROVIDER", "hf-cloudflare")
 MODEL_ID = os.getenv("MODEL_ID", "openai/whisper-large-v3-turbo")
 LANGUAGE = os.getenv("LANGUAGE", "english")
 
-# Streaming configuration
-STREAMING_CHUNK_LENGTH = 2.0  # Process every 2 seconds of audio
-OVERLAP_LENGTH = 0.5  # 500ms overlap for better continuity
-MAX_BUFFER_LENGTH = 30.0  # Maximum audio buffer length in seconds
-
 logger.info(f"""
     --------------------------------------
-    Streaming Configuration:
+    Near-Streaming Configuration:
     - UI_MODE: {UI_MODE}
     - UI_TYPE: {UI_TYPE}
     - APP_MODE: {APP_MODE}
     - MODEL_ID: {MODEL_ID}
     - LANGUAGE: {LANGUAGE}
-    - STREAMING_CHUNK_LENGTH: {STREAMING_CHUNK_LENGTH}s
-    - OVERLAP_LENGTH: {OVERLAP_LENGTH}s
-    - MAX_BUFFER_LENGTH: {MAX_BUFFER_LENGTH}s
+    - Mode: Aggressive ReplyOnPause for near-real-time
     --------------------------------------
 """)
 
@@ -63,168 +56,119 @@ transcribe_pipeline = initialize_whisper_model(
     device=get_device(force_cpu=False)
 )
 
-class StreamingTranscriber:
-    def __init__(self, pipeline, sample_rate=16000):
-        self.pipeline = pipeline
-        self.sample_rate = sample_rate
+# Connection-specific state management
+connection_states = {}
+
+class StreamingTranscriptionState:
+    def __init__(self):
         self.audio_buffer = deque()
-        self.buffer_lock = threading.Lock()
-        self.is_active = False
         self.last_transcript = ""
-        self.processing_thread = None
+        self.total_transcript = ""
+        self.chunk_count = 0
+        self.start_time = time.time()
         
-    async def add_audio_chunk(self, audio_chunk: np.ndarray):
-        """Add new audio chunk to buffer and trigger processing"""
-        with self.buffer_lock:
-            self.audio_buffer.append(audio_chunk)
-            
-            # Limit buffer size to prevent memory issues
-            total_length = sum(len(chunk) for chunk in self.audio_buffer)
-            max_samples = int(MAX_BUFFER_LENGTH * self.sample_rate)
-            
-            while total_length > max_samples and len(self.audio_buffer) > 1:
-                removed_chunk = self.audio_buffer.popleft()
-                total_length -= len(removed_chunk)
-    
-    def get_audio_for_transcription(self):
-        """Get current audio buffer for transcription"""
-        with self.buffer_lock:
-            if not self.audio_buffer:
-                return None
-                
-            # Concatenate all audio chunks
-            full_audio = np.concatenate(list(self.audio_buffer))
-            
-            # Only process if we have enough audio
-            min_samples = int(STREAMING_CHUNK_LENGTH * self.sample_rate)
-            if len(full_audio) < min_samples:
-                return None
-                
-            return full_audio
-    
-    async def transcribe_streaming(self):
-        """Continuously transcribe available audio"""
-        audio = self.get_audio_for_transcription()
-        if audio is None:
-            return None
-            
-        try:
-            # Use shorter chunks for streaming
-            result = self.pipeline(
-                audio,
-                chunk_length_s=STREAMING_CHUNK_LENGTH,
-                batch_size=1,
-                generate_kwargs={
-                    'task': 'transcribe',
-                    'language': LANGUAGE,
-                },
-                return_timestamps=True  # Enable timestamps for better streaming
-            )
-            
-            # Extract the text
-            current_transcript = result.get("text", "").strip()
-            
-            # Only return if transcript changed significantly
-            if current_transcript and current_transcript != self.last_transcript:
-                # Calculate the new portion (incremental update)
-                if self.last_transcript and current_transcript.startswith(self.last_transcript):
-                    new_text = current_transcript[len(self.last_transcript):].strip()
-                    if new_text:
-                        self.last_transcript = current_transcript
-                        return new_text
-                else:
-                    # Complete replacement
-                    self.last_transcript = current_transcript
-                    return current_transcript
-                    
-        except Exception as e:
-            logger.error(f"Transcription error: {e}")
-            
-        return None
+    def add_audio(self, audio_chunk):
+        self.audio_buffer.append(audio_chunk)
+        self.chunk_count += 1
+        
+        # Limit buffer to prevent memory issues (keep last 30 seconds)
+        max_chunks = 30 * 16000 // len(audio_chunk)  # Approximate
+        while len(self.audio_buffer) > max_chunks:
+            self.audio_buffer.popleft()
 
-# Global transcriber instance per connection
-active_transcribers = {}
-
-async def streaming_transcribe_handler(audio: tuple[int, np.ndarray], webrtc_id: str):
-    """Handle streaming transcription for continuous audio chunks"""
+async def streaming_transcribe(audio: tuple[int, np.ndarray], connection_id=None):
+    """Enhanced transcription with streaming optimizations"""
     sample_rate, audio_array = audio
     
-    # Get or create transcriber for this connection
-    if webrtc_id not in active_transcribers:
-        active_transcribers[webrtc_id] = StreamingTranscriber(transcribe_pipeline, sample_rate)
+    # Get or create connection state
+    if connection_id not in connection_states:
+        connection_states[connection_id] = StreamingTranscriptionState()
     
-    transcriber = active_transcribers[webrtc_id]
+    state = connection_states[connection_id]
+    state.add_audio(audio_array)
     
-    # Add audio chunk to buffer
-    await transcriber.add_audio_chunk(audio_array)
+    logger.debug(f"Processing audio chunk {state.chunk_count} for connection {connection_id}")
+    logger.debug(f"Sample rate: {sample_rate}Hz, Shape: {audio_array.shape}")
     
-    # Transcribe current buffer
-    result = await transcriber.transcribe_streaming()
-    
-    if result:
-        logger.debug(f"Streaming result for {webrtc_id}: {result[:50]}...")
-        yield AdditionalOutputs(result)
-
-class StreamingHandler:
-    """Custom handler for continuous streaming transcription"""
-    
-    def __init__(self, transcribe_func):
-        self.transcribe_func = transcribe_func
-        self.connections = {}
+    try:
+        # Use shorter chunks for faster processing
+        outputs = transcribe_pipeline(
+            audio_to_bytes(audio),
+            chunk_length_s=3,  # Shorter chunks for faster response
+            batch_size=1,      # Process immediately
+            generate_kwargs={
+                'task': 'transcribe',
+                'language': LANGUAGE,
+                'no_repeat_ngram_size': 2,  # Reduce repetition
+                'temperature': 0.0,         # More deterministic
+            },
+        )
         
-    async def __call__(self, audio, webrtc_id=None):
-        # Store connection context
-        if webrtc_id and webrtc_id not in self.connections:
-            self.connections[webrtc_id] = {
-                'start_time': time.time(),
-                'chunk_count': 0
-            }
+        current_text = outputs["text"].strip()
         
-        if webrtc_id:
-            self.connections[webrtc_id]['chunk_count'] += 1
+        if current_text and current_text != state.last_transcript:
+            # Calculate incremental update
+            if state.last_transcript and current_text.startswith(state.last_transcript):
+                # Extract new portion
+                new_portion = current_text[len(state.last_transcript):].strip()
+                if new_portion:
+                    state.last_transcript = current_text
+                    state.total_transcript += " " + new_portion
+                    logger.debug(f"Incremental update: {new_portion}")
+                    yield AdditionalOutputs(new_portion)
+            else:
+                # Complete replacement or first transcription
+                state.last_transcript = current_text
+                if not state.total_transcript:  # First transcription
+                    state.total_transcript = current_text
+                    logger.debug(f"First transcription: {current_text}")
+                    yield AdditionalOutputs(current_text)
+                else:
+                    # Handle significant changes
+                    state.total_transcript += " " + current_text
+                    logger.debug(f"New segment: {current_text}")
+                    yield AdditionalOutputs(current_text)
         
-        # Process with connection-specific context
-        async for result in self.transcribe_func(audio, webrtc_id):
-            yield result
-    
-    def cleanup_connection(self, webrtc_id):
-        """Clean up resources for a connection"""
-        if webrtc_id in active_transcribers:
-            del active_transcribers[webrtc_id]
-        if webrtc_id in self.connections:
-            del self.connections[webrtc_id]
+    except Exception as e:
+        logger.error(f"Transcription error for connection {connection_id}: {e}")
 
-# Create streaming handler
-streaming_handler = StreamingHandler(streaming_transcribe_handler)
+def cleanup_connection(connection_id):
+    """Clean up connection state"""
+    if connection_id in connection_states:
+        logger.info(f"Cleaning up connection {connection_id}")
+        del connection_states[connection_id]
 
-logger.info("Initializing FastRTC stream for continuous transcription")
+# Create FastRTC stream with very aggressive settings for near-real-time
+logger.info("Initializing FastRTC stream with aggressive settings for near-streaming")
 stream = Stream(
-    handler=streaming_handler,
-    # More aggressive settings for true streaming
-    algo_options=AlgoOptions(
-        # Smaller chunks for more responsive streaming
-        audio_chunk_duration=0.25,  # 250ms chunks
-        # Lower thresholds for faster response
-        started_talking_threshold=0.05,
-        speech_threshold=0.05,
-        # Process continuously, don't wait for long pauses
-        max_continuous_speech_s=2.0  # Process every 2 seconds max
-    ),
-    model_options=SileroVadOptions(
-        threshold=0.3,  # Lower threshold for more sensitive detection
-        min_speech_duration_ms=100,  # Shorter minimum speech
-        max_speech_duration_s=2.0,  # Shorter maximum for streaming
-        min_silence_duration_ms=200,  # Shorter silence detection
-        window_size_samples=512,  # Smaller window for faster processing
-        speech_pad_ms=100,  # Less padding for responsiveness
+    handler=ReplyOnPause(
+        streaming_transcribe,
+        algo_options=AlgoOptions(
+            # Very short audio chunks for responsiveness
+            audio_chunk_duration=0.2,  # 200ms chunks - very responsive
+            # Very low thresholds for quick detection
+            started_talking_threshold=0.05,  # Detect speech quickly
+            speech_threshold=0.05,           # Detect pauses quickly
+            # Short max speech before forcing processing
+            max_continuous_speech_s=2.0     # Process every 2 seconds max
+        ),
+        model_options=SileroVadOptions(
+            # Aggressive VAD settings for responsiveness
+            threshold=0.25,                  # Very sensitive speech detection
+            min_speech_duration_ms=50,       # Accept very short speech
+            max_speech_duration_s=2.0,       # Force processing frequently
+            min_silence_duration_ms=100,     # Very short pause detection
+            window_size_samples=512,         # Small window for fast processing
+            speech_pad_ms=50,               # Minimal padding for speed
+        ),
     ),
     modality="audio",
     mode="send",
     additional_outputs=[
         gr.Textbox(label="Live Transcript"),
     ],
-    # Accumulate streaming results instead of replacing
-    additional_outputs_handler=lambda current, new: (current + " " + new).strip(),
+    # Accumulate results for continuous transcript
+    additional_outputs_handler=lambda current, new: (current + " " + new).strip() if current else new,
     rtc_configuration=get_rtc_credentials(provider=TURN_PROVIDER) if APP_MODE == "deployed" else None,
 )
 
@@ -246,30 +190,27 @@ async def index():
 
 @app.get("/transcript")
 def transcript_endpoint(webrtc_id: str):
-    logger.debug(f"New streaming transcript request for webrtc_id: {webrtc_id}")
+    logger.debug(f"New transcript stream request for webrtc_id: {webrtc_id}")
     
     async def streaming_output():
         try:
             async for output in stream.output_stream(webrtc_id):
                 transcript = output.args[0]
-                # Send incremental updates
-                logger.debug(f"Streaming update for {webrtc_id}: {transcript[:30]}...")
-                yield f"event: streaming\ndata: {transcript}\n\n"
+                logger.debug(f"Streaming transcript for {webrtc_id}: {transcript[:50]}...")
+                # Use 'partial' event type to indicate streaming nature
+                yield f"event: partial\ndata: {transcript}\n\n"
         except Exception as e:
-            logger.error(f"Error in streaming transcript for {webrtc_id}: {str(e)}")
-            # Clean up resources on error
-            streaming_handler.cleanup_connection(webrtc_id)
+            logger.error(f"Error in transcript stream for {webrtc_id}: {str(e)}")
+            cleanup_connection(webrtc_id)
             raise
         finally:
-            # Clean up when stream ends
-            streaming_handler.cleanup_connection(webrtc_id)
+            cleanup_connection(webrtc_id)
 
     return StreamingResponse(streaming_output(), media_type="text/event-stream")
 
-# Cleanup endpoint for graceful connection termination
 @app.post("/cleanup/{webrtc_id}")
-async def cleanup_connection(webrtc_id: str):
-    streaming_handler.cleanup_connection(webrtc_id)
+async def cleanup_connection_endpoint(webrtc_id: str):
+    cleanup_connection(webrtc_id)
     return {"status": "cleaned"}
 
 if __name__ == "__main__":
@@ -277,7 +218,7 @@ if __name__ == "__main__":
     port = os.getenv("PORT", 7860)
     
     if UI_MODE == "gradio":
-        logger.info("Launching Gradio UI with streaming support")
+        logger.info("Launching Gradio UI with near-streaming support")
         stream.ui.launch(
             server_port=port, 
             server_name=server_name,
@@ -286,5 +227,5 @@ if __name__ == "__main__":
         )
     else:
         import uvicorn
-        logger.info("Launching FastAPI server with streaming support")
+        logger.info("Launching FastAPI server with near-streaming support")
         uvicorn.run(app, host=server_name, port=port)
